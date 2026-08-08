@@ -83,11 +83,9 @@ class Home(Parsing):
             logger.error(f"Error extracting card data: {e}")
             return None
 
-    def __get_home(
-        self, data: BeautifulSoup
-    ) -> Dict[str, Union[List[Dict[str, Any]], int, str]]:
-        """Extract home page content from the data."""
-        cards = []
+    def __get_home(self, data: BeautifulSoup) -> List[Dict[str, Any]]:
+        """Extract home page content and format for frontend."""
+        sections = []
         try:
             content_sections = data.find_all("div", {"class": "bixbox bbnofrm"})
             logger.info(f"Found {len(content_sections)} sections in home page")
@@ -99,61 +97,55 @@ class Home(Parsing):
                     if releases_div:
                         section_element = releases_div.find()
                         section_name = (
-                            section_element.text.lower().replace(" ", "_")
+                            section_element.text.strip()
                             if section_element
-                            else "unknown"
+                            else "Unknown"
                         )
                     else:
-                        section_name = "unknown"
+                        section_name = "Unknown"
 
                     # Extract articles
                     articles = section.find_all("article")
-                    section_items = []
+                    items = []
 
                     for article in articles:
                         try:
                             card = self.__get_card(article)
                             if card:
-                                section_items.append(card)
+                                # Format sesuai frontend
+                                items.append({
+                                    "slug": card.get("slug"),
+                                    "title": card.get("title"),
+                                    "poster": card.get("thumbnail"),
+                                    "image": card.get("thumbnail"),
+                                    "type": card.get("type"),
+                                    "episode": card.get("eps"),
+                                    "status": None,
+                                    "rating": None,
+                                })
                         except Exception as card_error:
-                            logger.error(
-                                f"Error processing article in section {section_name}: {card_error}"
-                            )
+                            logger.error(f"Error processing article: {card_error}")
                             continue
 
-                    if section_items:
-                        cards.append({"section": section_name, "cards": section_items})
-                        logger.debug(
-                            f"Added section '{section_name}' with {len(section_items)} items"
-                        )
+                    if items:
+                        sections.append({
+                            "title": section_name,
+                            "items": items
+                        })
+                        logger.debug(f"Added section '{section_name}' with {len(items)} items")
 
                 except Exception as section_error:
                     logger.error(f"Error processing section: {section_error}")
                     continue
 
-            result = {
-                "results": cards,
-                "page": self.__page,
-                "total": len(cards),
-                "source": self.history_url,
-            }
-
-            logger.info(
-                f"Successfully processed {len(cards)} sections for page {self.__page}"
-            )
-            return result
+            logger.info(f"Successfully processed {len(sections)} sections for page {self.__page}")
+            return sections
 
         except Exception as e:
             logger.error(f"Error extracting home page content: {e}")
-            return {
-                "results": [],
-                "page": self.__page,
-                "total": 0,
-                "source": self.history_url,
-                "error": str(e),
-            }
+            return []
 
-    def get_details(self) -> Dict[str, Union[List[Dict[str, Any]], int, str]]:
+    def get_details(self) -> List[Dict[str, Any]]:
         """Get home page details."""
         try:
             logger.info(f"Starting to fetch home page for page: {self.__page}")
@@ -165,29 +157,16 @@ class Home(Parsing):
             data = self.get_parsed_html(url)
             if not data:
                 logger.error("Failed to get home page data")
-                return {
-                    "results": [],
-                    "page": self.__page,
-                    "total": 0,
-                    "source": self.history_url,
-                    "error": "Failed to fetch home page",
-                }
+                return []
 
             return self.__get_home(data)
 
         except Exception as e:
             logger.error(f"Error in get_details for page {self.__page}: {e}")
-            return {
-                "results": [],
-                "page": self.__page,
-                "total": 0,
-                "source": self.history_url,
-                "error": str(e),
-            }
+            return []
 
 
 if __name__ == "__main__":
-    # Configure logging for testing
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
