@@ -2,11 +2,10 @@ from .parsing import Parsing
 from urllib.parse import urlparse
 import re
 import logging
-from time import strptime, struct_time
+from time import strptime
 from typing import Dict, List, Optional, Any, Union
 from bs4 import BeautifulSoup, Tag
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 
@@ -20,9 +19,8 @@ class Info(Parsing):
     def __get_info(self) -> Optional[BeautifulSoup]:
         """Get parsed HTML content for the anime info page."""
         try:
-            if "anixverse" in self.url:
-                return self.get_parsed_html(f"anime/{self.slug}")
-            return self.get_parsed_html(self.slug)
+            # Anichin sekarang menggunakan path /seri/{slug}/
+            return self.get_parsed_html(f"seri/{self.slug}")
         except Exception as e:
             logger.error(f"Failed to get info for slug {self.slug}: {e}")
             return None
@@ -51,9 +49,7 @@ class Info(Parsing):
             if thumb_div:
                 img_element = thumb_div.find("img")
                 if img_element:
-                    thumbnail = img_element.get("data-lazy-src") or img_element.get(
-                        "src"
-                    )
+                    thumbnail = img_element.get("data-lazy-src") or img_element.get("src")
                     if thumbnail:
                         self.__thumbnail = thumbnail
                         logger.debug(f"Found thumbnail: {thumbnail}")
@@ -71,9 +67,7 @@ class Info(Parsing):
             genres_div = content.find("div", {"class": "genxed"})
             if genres_div:
                 genre_links = genres_div.find_all("a")
-                genres = [
-                    link.text.strip() for link in genre_links if link.text.strip()
-                ]
+                genres = [link.text.strip() for link in genre_links if link.text.strip()]
                 logger.debug(f"Found genres: {genres}")
                 return genres
             else:
@@ -123,7 +117,6 @@ class Info(Parsing):
         try:
             rating_div = content.find("div", {"class": "rating"})
             if rating_div:
-                # Try to find rating in strong tag first
                 strong_element = rating_div.find("strong")
                 if strong_element:
                     rating_text = strong_element.text.strip()
@@ -133,7 +126,6 @@ class Info(Parsing):
                         logger.debug(f"Found rating (strong): {rating}")
                         return rating
 
-                # Try numscore as fallback
                 numscore_div = rating_div.find("div", {"class": "numscore"})
                 if numscore_div:
                     rating = numscore_div.text.strip()
@@ -146,54 +138,44 @@ class Info(Parsing):
             logger.error(f"Error extracting rating: {e}")
             return None
 
-    def __get_sinopsis(self, data: BeautifulSoup) -> str:
+    def __get_sinopsis(self, data: BeautifulSoup) -> Dict[str, Any]:
         """Extract synopsis from the content."""
         try:
-
             synopsis = data.find(
                 "div", {"class": "entry-content", "itemprop": "description"}
             )
             if not synopsis:
                 logger.warning("Synopsis div not found")
-                return {}
+                return {"paragraphs": [], "title": ""}
+
             title_element = synopsis.find("h1")
-            if not title_element:
-                title = ""
-            else:
-                title = title_element.text.strip() + " - "
+            title = title_element.text.strip() + " - " if title_element else ""
+
             paragraphs = synopsis.find_all("p")
             if not paragraphs:
-                logger.warning("No paragraphs found in synopsis")
                 paragraphs = [synopsis]
+
             return {
-                "paragraphs": [
-                    p.text.strip() for p in paragraphs if isinstance(p, Tag)
-                ],
+                "paragraphs": [p.text.strip() for p in paragraphs if isinstance(p, Tag)],
                 "title": title.strip(),
             }
         except Exception as e:
             logger.error(f"Error extracting synopsis: {e}")
-            return ""
+            return {"paragraphs": [], "title": ""}
 
     def __parse_date(self, date_str: str) -> str:
         """Parse and format date string safely."""
         try:
-            # Expected format: "January 01, 2023"
-            # Convert to "01 January 2023" format for parsing
             formatted_date = re.sub(
                 r"(\w+)\s+(\d{1,2}),\s+(\d{4})", r"\2 \1 \3", date_str.strip()
             )
-
-            # Parse the date
             parsed_date = strptime(formatted_date, "%d %B %Y")
-
-            # Format as MM/DD/YYYY
             result = f"{parsed_date.tm_mon}/{parsed_date.tm_mday}/{parsed_date.tm_year}"
             logger.debug(f"Parsed date '{date_str}' to '{result}'")
             return result
         except Exception as e:
             logger.error(f"Error parsing date '{date_str}': {e}")
-            return date_str  # Return original string if parsing fails
+            return date_str
 
     def __get_episodes(self, data: BeautifulSoup) -> List[Dict[str, Union[str, None]]]:
         """Extract episodes list from the content."""
@@ -214,30 +196,20 @@ class Info(Parsing):
 
             for i, item in enumerate(episodes):
                 try:
-                    # Extract slug
                     link = item.find("a")
                     if not link or not link.get("href"):
                         logger.warning(f"Episode {i+1}: Link not found, skipping")
                         continue
 
                     slug = urlparse(link["href"]).path.strip("/")
-                    subtitle = item.find("div", {"class": "epl-title"})
-                    if subtitle:
-                        subtitle = subtitle.text.strip()
-                    else:
-                        subtitle = f"Episode {i+1}"
-                    date = item.find("div", {"class": "epl-date"})
-                    if date:
-                        date_text = date.text.strip()
-                        date = self.__parse_date(date_text)
-                    else:
-                        date = "Unknown Date"
-                    eps = item.find("div", {"class": "epl-num"})
-                    if eps:
-                        eps_text = eps.text.strip()
-                        eps = eps_text
-                    else:
-                        eps = None
+                    subtitle_el = item.find("div", {"class": "epl-title"})
+                    subtitle = subtitle_el.text.strip() if subtitle_el else f"Episode {i+1}"
+
+                    date_el = item.find("div", {"class": "epl-date"})
+                    date = self.__parse_date(date_el.text.strip()) if date_el else "Unknown Date"
+
+                    eps_el = item.find("div", {"class": "epl-num"})
+                    eps = eps_el.text.strip() if eps_el else None
 
                     episode_data = {
                         "slug": slug,
@@ -284,7 +256,6 @@ class Info(Parsing):
                     "error": "Main content not found",
                 }
 
-            # Extract all information
             name = self.__get_name(content)
             thumbnail = self.__get_thumbnail(data)
             genres = self.__get_genres(content)
@@ -293,7 +264,6 @@ class Info(Parsing):
             sinopsis = self.__get_sinopsis(data)
             episodes = self.__get_episodes(data)
 
-            # Combine all information
             result_info = {
                 **info_details,
                 "name": name,
@@ -315,11 +285,10 @@ class Info(Parsing):
 
 
 if __name__ == "__main__":
-    # Configure logging for testing
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    info = Info("against-the-sky-supreme-episode-218-subtitle-indonesia")
+    info = Info("perfect-world")
     print(info.to_json())
